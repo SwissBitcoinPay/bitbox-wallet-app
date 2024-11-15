@@ -675,39 +675,35 @@ func (account *Account) storePendingOutgoingTransaction(transaction *types.Trans
 }
 
 // SendTx implements accounts.Interface.
-func (account *Account) SendTx(txNote string) error {
+func (account *Account) SendTx() (string, error) {
 	unlock := account.updateLock.RLock()
 	txProposal := account.activeTxProposal
 	unlock()
 	if txProposal == nil {
-		return errp.New("No active tx proposal")
+		return "", errp.New("No active tx proposal")
 	}
 
 	keystore, err := account.Config().ConnectKeystore()
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	account.log.Info("Signing and sending transaction")
 	if err := keystore.SignTransaction(txProposal); err != nil {
-		return err
+		return "", err
 	}
 	// By experience, at least with the Etherscan backend, this can succeed and still the
 	// transaction will be lost (not in any block explorer, the node does not know about it, etc.).
 	// We do an attempt here and more attempts if needed in `updateOutgoingTransactions()`.
 	if err := account.coin.client.SendTransaction(context.TODO(), txProposal.Tx); err != nil {
-		return errp.WithStack(err)
+		return "", errp.WithStack(err)
 	}
 	if err := account.storePendingOutgoingTransaction(txProposal.Tx); err != nil {
-		return err
+		return "", err
 	}
 
-	if err := account.SetTxNote(txProposal.Tx.Hash().Hex(), txNote); err != nil {
-		// Not critical.
-		account.log.WithError(err).Error("Failed to save transaction note when sending a tx")
-	}
 	account.enqueueUpdateCh <- struct{}{}
-	return nil
+	return "", nil
 }
 
 // feeTargets returns three priorities with fee targets estimated by Etherscan
@@ -792,6 +788,16 @@ func (account *Account) TxProposal(
 
 // GetUnusedReceiveAddresses implements accounts.Interface.
 func (account *Account) GetUnusedReceiveAddresses() []accounts.AddressList {
+	if !account.isInitialized() {
+		return nil
+	}
+	return []accounts.AddressList{{
+		Addresses: []accounts.Address{account.address},
+	}}
+}
+
+// GetReceiveAddresses implements accounts.Interface.
+func (account *Account) GetReceiveAddresses() []accounts.AddressList {
 	if !account.isInitialized() {
 		return nil
 	}

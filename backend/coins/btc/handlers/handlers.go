@@ -475,14 +475,7 @@ func (input *sendTxInput) UnmarshalJSON(jsonBytes []byte) error {
 }
 
 func (handlers *Handlers) postAccountSendTx(r *http.Request) (interface{}, error) {
-	var txNote string
-	if err := json.NewDecoder(r.Body).Decode(&txNote); err != nil {
-		// In case unmarshaling of the tx. note fails for some reason we do not want to abort send
-		// because the tx. note is not critical for its functionality/correctness. This is why we do
-		// not return but only log an error here.
-		handlers.log.WithError(err).Error("Failed to unmarshal transaction note")
-	}
-	err := handlers.account.SendTx(txNote)
+	txHex, err := handlers.account.SendTx()
 	if errp.Cause(err) == keystore.ErrSigningAborted || errp.Cause(err) == errp.ErrUserAbort {
 		return map[string]interface{}{"success": false, "aborted": true}, nil
 	}
@@ -494,6 +487,10 @@ func (handlers *Handlers) postAccountSendTx(r *http.Request) (interface{}, error
 		}
 		return result, nil
 	}
+	return map[string]interface{}{
+		"success": true,
+		"txHex":   txHex,
+	}, nil
 	return map[string]interface{}{"success": true}, nil
 }
 
@@ -591,7 +588,7 @@ func (handlers *Handlers) getReceiveAddresses(*http.Request) (interface{}, error
 		Addresses  []jsonAddress       `json:"addresses"`
 	}
 	addressList := []jsonAddressList{}
-	for _, addresses := range handlers.account.GetUnusedReceiveAddresses() {
+	for _, addresses := range handlers.account.GetReceiveAddresses() {
 		addrs := []jsonAddress{}
 		for _, address := range addresses.Addresses {
 			addrs = append(addrs, jsonAddress{

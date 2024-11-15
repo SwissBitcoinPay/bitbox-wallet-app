@@ -754,6 +754,37 @@ func (account *Account) GetUnusedReceiveAddresses() []accounts.AddressList {
 	return addresses
 }
 
+// GetReceiveAddresses returns a number of addresses. Returns nil if the account is not initialized.
+func (account *Account) GetReceiveAddresses() []accounts.AddressList {
+	if !account.isInitialized() {
+		return nil
+	}
+	account.Synchronizer.WaitSynchronized()
+	account.log.Debug("Get unused receive address")
+	var addresses []accounts.AddressList
+	for _, subacc := range account.subaccounts {
+		scriptType := subacc.signingConfiguration.ScriptType()
+		if account.Config().Config.InsuranceStatus == string(bitsurance.ActiveStatus) && scriptType != signing.ScriptTypeP2WPKH {
+			// Insured accounts can only receive on native segwit
+			continue
+		}
+
+		var addressList accounts.AddressList
+		addressList.ScriptType = &scriptType
+		receiveAddresses := subacc.receiveAddresses.GetAddresses()
+		for idx, address := range receiveAddresses {
+			if idx >= receiveAddressesLimit {
+				// Limit to gap limit for receive addresses, even if the actual limit is higher when
+				// scanning.
+				break
+			}
+			addressList.Addresses = append(addressList.Addresses, address)
+		}
+		addresses = append(addresses, addressList)
+	}
+	return addresses
+}
+
 // VerifyAddress verifies a receive address on a keystore. Returns false, nil if no secure output
 // exists.
 func (account *Account) VerifyAddress(addressID string) (bool, error) {
@@ -937,7 +968,7 @@ func SignBTCAddress(account accounts.Interface, message string, scriptType signi
 			account.Coin().Code())
 	}
 
-	unused := account.GetUnusedReceiveAddresses()
+	address := account.GetReceiveAddresses()
 	// Use the format hint to get a compatible address
 	if len(scriptType) == 0 {
 		scriptType = signing.ScriptTypeP2WPKH
@@ -947,7 +978,7 @@ func SignBTCAddress(account accounts.Interface, message string, scriptType signi
 		err := errp.Newf("Unsupported format: %s", scriptType)
 		return "", "", err
 	}
-	addr := unused[signingConfigIdx].Addresses[0]
+	addr := address[signingConfigIdx].Addresses[0]
 
 	sig, err := keystore.SignBTCMessage(
 		[]byte(message),

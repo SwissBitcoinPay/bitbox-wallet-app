@@ -59,6 +59,10 @@ func NewAddressChain(
 	}
 }
 
+func (addresses *AddressChain) GetAddresses() []*AccountAddress {
+	return addresses.addresses
+}
+
 // GetUnused returns the last `gapLimit` unused addresses. EnsureAddresses() must be called
 // beforehand.
 func (addresses *AddressChain) GetUnused() ([]*AccountAddress, error) {
